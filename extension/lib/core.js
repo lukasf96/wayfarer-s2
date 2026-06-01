@@ -120,6 +120,53 @@
     return null;
   };
 
+  const POGO_ENTITY_STOP = "POKESTOP";
+  const POGO_ENTITY_GYM = "GYM";
+  const POGO_ENTITIES = new Set([POGO_ENTITY_STOP, POGO_ENTITY_GYM]);
+
+  W.POGO_ENTITY_STOP = POGO_ENTITY_STOP;
+  W.POGO_ENTITY_GYM = POGO_ENTITY_GYM;
+
+  function getGmoFromPoi(poi) {
+    const gmo = poi?.gmo ?? poi?.properties?.gmo;
+    return Array.isArray(gmo) ? gmo : [];
+  }
+
+  W.getActivePogoEntity = function getActivePogoEntity(poi) {
+    let hasStop = false;
+    let hasUnknown = false;
+
+    for (const entry of getGmoFromPoi(poi)) {
+      if (!entry || String(entry.status).toUpperCase() !== "ACTIVE") {
+        continue;
+      }
+      const entity = entry.entity ? String(entry.entity).toUpperCase() : null;
+      if (entity === POGO_ENTITY_GYM) {
+        return POGO_ENTITY_GYM;
+      }
+      if (entity === POGO_ENTITY_STOP) {
+        hasStop = true;
+      } else if (!entity || POGO_ENTITIES.has(entity)) {
+        hasUnknown = true;
+      }
+    }
+
+    if (hasStop) {
+      return POGO_ENTITY_STOP;
+    }
+    if (hasUnknown) {
+      return "UNKNOWN";
+    }
+    return null;
+  };
+
+  W.isInGamePoi = function isInGamePoi(poi) {
+    if (!poi || !Number.isFinite(poi.lat) || !Number.isFinite(poi.lng)) {
+      return false;
+    }
+    return W.getActivePogoEntity(poi) !== null;
+  };
+
   W.normalizePoiMarker = function normalizePoiMarker(marker) {
     if (!marker) {
       return null;

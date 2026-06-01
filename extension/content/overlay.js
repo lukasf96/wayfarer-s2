@@ -6,8 +6,17 @@
   "use strict";
 
   const W = window.WayfarerS2;
+  const GYM_DENSITY_CELL_LEVEL = 14;
   const POI_CELL_LEVEL = 17;
-  const POGO_ENTITIES = new Set(["POKESTOP", "GYM"]);
+  const Z_INDEX_L17_GRID = 100 + POI_CELL_LEVEL;
+  const Z_INDEX_L14_GRID = 100 + GYM_DENSITY_CELL_LEVEL;
+  const Z_INDEX_L14_OVER_L17 = 125;
+  const Z_INDEX_L17_OCCUPIED = 150;
+  const OCCUPIED_L17_STYLES = {
+    POKESTOP: { stroke: "#1565C0", fill: "#42A5F5", fillOpacity: 0.35 },
+    GYM: { stroke: "#C62828", fill: "#E53935", fillOpacity: 0.32 },
+    UNKNOWN: { stroke: "#6D4C41", fill: "#8D6E63", fillOpacity: 0.3 },
+  };
 
   if (!W?.S2Cell || !W.normalizeSettings) {
     console.error("[Wayfarer S2] extension libraries failed to load");
@@ -23,7 +32,7 @@
   let panelEl = null;
   let redrawTimer = null;
   let findMapTimer = null;
-  let occupiedL17Cells = new Set();
+  let occupiedL17ByEntity = new Map();
   let poiCache = new Map();
 
   function whenDomReady(callback) {
@@ -198,28 +207,14 @@
     return S2Cell.fromLatLng({ lat, lng }, level).toString();
   }
 
-  function getGmo(poi) {
-    const gmo = poi?.gmo ?? poi?.properties?.gmo;
-    return Array.isArray(gmo) ? gmo : [];
-  }
-
-  function isInGamePoi(poi) {
-    if (!poi || !Number.isFinite(poi.lat) || !Number.isFinite(poi.lng)) {
-      return false;
+  function entityPriority(entity) {
+    if (entity === W.POGO_ENTITY_GYM) {
+      return 2;
     }
-    const gmo = getGmo(poi);
-    if (gmo.length === 0) {
-      return false;
+    if (entity === W.POGO_ENTITY_STOP) {
+      return 1;
     }
-    return gmo.some((entry) => {
-      if (!entry || String(entry.status).toUpperCase() !== "ACTIVE") {
-        return false;
-      }
-      if (!entry.entity) {
-        return true;
-      }
-      return POGO_ENTITIES.has(entry.entity);
-    });
+    return 0;
   }
 
   function cachePoi(poi) {
@@ -274,7 +269,7 @@
   }
 
   function rebuildOccupiedL17Cells() {
-    occupiedL17Cells = new Set();
+    occupiedL17ByEntity = new Map();
 
     const sources = [...poiCache.values()];
     for (const marker of harvestRawMarkers()) {
@@ -282,10 +277,15 @@
     }
 
     for (const poi of sources) {
-      if (!isInGamePoi(poi)) {
+      const entity = W.getActivePogoEntity(poi);
+      if (!entity) {
         continue;
       }
-      occupiedL17Cells.add(cellKeyAt(poi.lat, poi.lng, POI_CELL_LEVEL));
+      const key = cellKeyAt(poi.lat, poi.lng, POI_CELL_LEVEL);
+      const existing = occupiedL17ByEntity.get(key);
+      if (!existing || entityPriority(entity) > entityPriority(existing)) {
+        occupiedL17ByEntity.set(key, entity);
+      }
     }
   }
 
@@ -294,31 +294,63 @@
     polygons = [];
   }
 
-  function drawCellOutline(cell, grid) {
+  function isGridLevelActive(grid, zoom) {
+    return Boolean(grid?.enabled && shouldDrawLevel(grid.level, zoom));
+  }
+
+  function bothL14AndL17Visible(zoom) {
+    const l14 = settings.grids.find((g) => g.level === GYM_DENSITY_CELL_LEVEL);
+    const l17 = settings.grids.find((g) => g.level === POI_CELL_LEVEL);
+    return isGridLevelActive(l14, zoom) && isGridLevelActive(l17, zoom);
+  }
+
+  function drawCellOutline(cell, grid, renderCtx) {
     const corners = cell.getCornerLatLngs();
     const path = corners.map((c) => ({ lat: c.lat, lng: c.lng }));
     const cellId = cell.toString();
-    const isOccupiedL17 =
-      grid.level === POI_CELL_LEVEL &&
-      settings.highlightOccupiedL17 &&
-      occupiedL17Cells.has(cellId);
+    const occupiedEntity =
+      grid.level === POI_CELL_LEVEL && settings.highlightOccupiedL17
+        ? occupiedL17ByEntity.get(cellId)
+        : null;
+    const occupiedStyle = occupiedEntity
+      ? OCCUPIED_L17_STYLES[occupiedEntity] ?? OCCUPIED_L17_STYLES.UNKNOWN
+      : null;
+
+    const emphasizeL14 =
+      !occupiedStyle &&
+      grid.level === GYM_DENSITY_CELL_LEVEL &&
+      renderCtx?.dualL14L17;
+
+    let strokeWeight = occupiedStyle ? grid.weight + 1 : grid.weight;
+    let strokeOpacity = occupiedStyle ? 0.95 : grid.opacity;
+    let zIndex = occupiedStyle
+      ? Z_INDEX_L17_OCCUPIED
+      : grid.level === POI_CELL_LEVEL
+        ? Z_INDEX_L17_GRID
+        : Z_INDEX_L14_GRID;
+
+    if (emphasizeL14) {
+      strokeWeight = grid.weight + 2;
+      strokeOpacity = 1;
+      zIndex = Z_INDEX_L14_OVER_L17;
+    }
 
     const polygon = new google.maps.Polygon({
       paths: path,
-      strokeColor: isOccupiedL17 ? "#C62828" : grid.color,
-      strokeOpacity: isOccupiedL17 ? 0.95 : grid.opacity,
-      strokeWeight: isOccupiedL17 ? grid.weight + 1 : grid.weight,
-      fillColor: isOccupiedL17 ? "#E53935" : undefined,
-      fillOpacity: isOccupiedL17 ? 0.32 : 0,
+      strokeColor: occupiedStyle ? occupiedStyle.stroke : grid.color,
+      strokeOpacity,
+      strokeWeight,
+      fillColor: occupiedStyle ? occupiedStyle.fill : undefined,
+      fillOpacity: occupiedStyle ? occupiedStyle.fillOpacity : 0,
       geodesic: true,
       clickable: false,
       map,
-      zIndex: isOccupiedL17 ? 150 : 100 + grid.level,
+      zIndex,
     });
     polygons.push(polygon);
   }
 
-  function drawGridLevel(grid, bounds, zoom) {
+  function drawGridLevel(grid, bounds, zoom, renderCtx) {
     if (!grid.enabled || !shouldDrawLevel(grid.level, zoom)) {
       return { cells: 0, occupied: 0 };
     }
@@ -343,12 +375,12 @@
       if (
         grid.level === POI_CELL_LEVEL &&
         settings.highlightOccupiedL17 &&
-        occupiedL17Cells.has(key)
+        occupiedL17ByEntity.has(key)
       ) {
         occupied += 1;
       }
 
-      drawCellOutline(cell, grid);
+      drawCellOutline(cell, grid, renderCtx);
       count += 1;
 
       const neighbors = cell.getNeighbors();
@@ -378,9 +410,13 @@
     const bounds = boundsFromGoogle(map.getBounds());
     const zoom = map.getZoom();
 
-    const sortedGrids = [...settings.grids].sort((a, b) => a.level - b.level);
+    const dualL14L17 = bothL14AndL17Visible(zoom);
+    const renderCtx = { dualL14L17 };
+    const sortedGrids = [...settings.grids].sort((a, b) =>
+      dualL14L17 ? b.level - a.level : a.level - b.level
+    );
     for (const grid of sortedGrids) {
-      drawGridLevel(grid, bounds, zoom);
+      drawGridLevel(grid, bounds, zoom, renderCtx);
     }
 
     updateDebugState();
@@ -640,7 +676,8 @@
       #wayfarer-s2-panel .wfs2-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; font-size: 10px; }
       #wayfarer-s2-panel .wfs2-legend-item { display: flex; align-items: center; gap: 4px; }
       #wayfarer-s2-panel .wfs2-swatch--free { background: transparent; border: 2px solid #FF9800; }
-      #wayfarer-s2-panel .wfs2-swatch--blocked { background: rgba(229, 57, 53, 0.45); border: 2px solid #C62828; }
+      #wayfarer-s2-panel .wfs2-swatch--stop { background: rgba(66, 165, 245, 0.45); border: 2px solid #1565C0; }
+      #wayfarer-s2-panel .wfs2-swatch--gym { background: rgba(229, 57, 53, 0.45); border: 2px solid #C62828; }
     `;
     (document.head || document.documentElement).appendChild(style);
   }
@@ -666,7 +703,8 @@
       </label>
       <div class="wfs2-legend">
         <span class="wfs2-legend-item"><span class="wfs2-swatch wfs2-swatch--free"></span>Free L17</span>
-        <span class="wfs2-legend-item"><span class="wfs2-swatch wfs2-swatch--blocked"></span>Blocked L17</span>
+        <span class="wfs2-legend-item"><span class="wfs2-swatch wfs2-swatch--stop"></span>Stop</span>
+        <span class="wfs2-legend-item"><span class="wfs2-swatch wfs2-swatch--gym"></span>Gym</span>
       </div>
     `;
 
@@ -765,16 +803,27 @@
   function updateDebugState() {
     const harvested = harvestRawMarkers();
     let inGameCount = 0;
+    let stopCount = 0;
+    let gymCount = 0;
     for (const poi of [...poiCache.values(), ...harvested]) {
-      if (isInGamePoi(poi)) {
-        inGameCount += 1;
+      const entity = W.getActivePogoEntity(poi);
+      if (!entity) {
+        continue;
+      }
+      inGameCount += 1;
+      if (entity === W.POGO_ENTITY_STOP) {
+        stopCount += 1;
+      } else if (entity === W.POGO_ENTITY_GYM) {
+        gymCount += 1;
       }
     }
     window.__wayfarerS2Debug = {
       poiCacheSize: poiCache.size,
       harvestedCount: harvested.length,
       inGameCount,
-      occupiedL17: occupiedL17Cells.size,
+      stopCount,
+      gymCount,
+      occupiedL17: occupiedL17ByEntity.size,
     };
   }
 
@@ -790,7 +839,7 @@
       W.clearPendingMap();
       stopMapDiscovery();
       poiCache = new Map();
-      occupiedL17Cells = new Set();
+      occupiedL17ByEntity = new Map();
       updatePanel();
       W.notifyNavigation();
       return;

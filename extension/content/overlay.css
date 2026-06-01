@@ -90,7 +90,12 @@
   border: 2px solid #ff9800;
 }
 
-#wayfarer-s2-panel .wfs2-swatch--blocked {
+#wayfarer-s2-panel .wfs2-swatch--stop {
+  background: rgba(66, 165, 245, 0.45);
+  border: 2px solid #1565c0;
+}
+
+#wayfarer-s2-panel .wfs2-swatch--gym {
   background: rgba(229, 57, 53, 0.45);
   border: 2px solid #c62828;
 }

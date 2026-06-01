@@ -9,7 +9,7 @@ Overlay **S2 cell grids** on the [Niantic Wayfarer map](https://wayfarer.niantic
 | **14** | ~450 m edge | Gym density (how many stops become gyms in a cell) |
 | **17** | ~70 m edge | **One PokéStop/Gym per cell** in Pokémon GO |
 
-The extension also **shades Level 17 cells red** when they already contain an active in-game PokéStop or Gym (blocked for Pokémon GO).
+The extension also **shades occupied Level 17 cells** when they already contain an active in-game POI: **blue** for PokéStops and **red** for Gyms (blocked for new Pokémon GO nominations in that cell).
 
 Grid visibility follows the same zoom heuristic as community IITC tools: a level is drawn when `6 ≤ level < mapZoom + 2`.
 
