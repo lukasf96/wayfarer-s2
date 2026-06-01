@@ -362,7 +362,7 @@
   }
 
   function redrawGrid() {
-    if (!map || !settings.enabled || !W.isMapViewPage()) {
+    if (!ensureMapAttached() || !settings.enabled || !W.isMapViewPage()) {
       clearOverlays();
       return;
     }
@@ -393,6 +393,13 @@
     redrawTimer = setTimeout(redrawGrid, 80);
   }
 
+  function stopMapDiscovery() {
+    if (findMapTimer) {
+      clearInterval(findMapTimer);
+      findMapTimer = null;
+    }
+  }
+
   function detachMap() {
     if (map && mapListeners.length) {
       mapListeners.forEach((listener) => {
@@ -404,6 +411,15 @@
     clearOverlays();
   }
 
+  function ensureMapAttached() {
+    if (map && !W.isLiveMap(map)) {
+      detachMap();
+      W.clearPendingMap();
+      return false;
+    }
+    return Boolean(map);
+  }
+
   function consumePendingMap() {
     const pending = window[W.PENDING_MAP_KEY];
     if (pending) {
@@ -413,8 +429,11 @@
 
   function attachMap(instance) {
     const resolved = W.unwrapMap(instance);
-    if (!resolved || map === resolved) {
-      return Boolean(resolved);
+    if (!resolved || !W.isLiveMap(resolved)) {
+      return false;
+    }
+    if (map === resolved) {
+      return true;
     }
 
     detachMap();
@@ -434,6 +453,7 @@
 
     scheduleRedraw();
     updatePanel();
+    W.notifyNavigation();
     return true;
   }
 
@@ -500,9 +520,11 @@
   }
 
   function startMapDiscovery() {
-    if (findMapTimer) {
+    if (!W.isMapViewPage()) {
       return;
     }
+
+    stopMapDiscovery();
 
     let attempts = 0;
     const maxAttempts = 120;
@@ -756,25 +778,39 @@
     };
   }
 
+  function scheduleNavigationRedraws() {
+    scheduleRedraw();
+    window.setTimeout(scheduleRedraw, 400);
+    window.setTimeout(scheduleRedraw, 1500);
+  }
+
   function onNavigation() {
     if (!W.isMapViewPage()) {
       detachMap();
+      W.clearPendingMap();
+      stopMapDiscovery();
       poiCache = new Map();
       occupiedL17Cells = new Set();
       updatePanel();
+      W.notifyNavigation();
       return;
     }
 
-    updatePanel();
+    if (map && !W.isLiveMap(map)) {
+      detachMap();
+      W.clearPendingMap();
+    }
 
+    updatePanel();
     consumePendingMap();
 
     if (!map) {
       tryFindExistingMap();
-      if (!findMapTimer) {
-        startMapDiscovery();
-      }
     }
+
+    startMapDiscovery();
+    W.notifyNavigation();
+    scheduleNavigationRedraws();
   }
 
   function watchMapLegend() {

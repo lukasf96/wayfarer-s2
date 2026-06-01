@@ -172,23 +172,46 @@
     }
   }
 
+  let harvestTimer = null;
+  let offMapTicks = 0;
+
+  function stopAngularHarvest() {
+    if (harvestTimer) {
+      clearInterval(harvestTimer);
+      harvestTimer = null;
+    }
+    offMapTicks = 0;
+  }
+
   function startAngularHarvest() {
-    let ticks = 0;
-    const timer = setInterval(() => {
-      ticks += 1;
+    stopAngularHarvest();
+    offMapTicks = 0;
+
+    harvestTimer = setInterval(() => {
       if (!W.isMapViewPage()) {
-        if (ticks > 5) {
-          clearInterval(timer);
+        offMapTicks += 1;
+        if (offMapTicks > 5) {
+          stopAngularHarvest();
         }
         return;
       }
+
+      offMapTicks = 0;
       harvestFromAngular();
-      if (ticks >= 120) {
-        clearInterval(timer);
-      }
     }, 1000);
+  }
+
+  function onNavigation(event) {
+    if (!event.detail?.onMapView) {
+      stopAngularHarvest();
+      return;
+    }
+
+    harvestFromAngular();
+    startAngularHarvest();
   }
 
   setupNetworkCapture();
   startAngularHarvest();
+  window.addEventListener(W.NAVIGATION_EVENT, onNavigation);
 })();

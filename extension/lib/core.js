@@ -9,7 +9,32 @@
   W.MESSAGE_SETTINGS = "WAYFARER_S2_SETTINGS";
   W.MESSAGE_POIS = "WAYFARER_S2_POIS";
   W.MAP_FOUND_EVENT = "wayfarer-s2-map-found";
+  W.NAVIGATION_EVENT = "wayfarer-s2-navigation";
   W.PENDING_MAP_KEY = "__wayfarerS2PendingMap";
+
+  W.clearPendingMap = function clearPendingMap() {
+    delete global[W.PENDING_MAP_KEY];
+  };
+
+  W.notifyNavigation = function notifyNavigation() {
+    global.dispatchEvent(
+      new CustomEvent(W.NAVIGATION_EVENT, {
+        detail: { onMapView: W.isMapViewPage() },
+      })
+    );
+  };
+
+  W.isLiveMap = function isLiveMap(mapInstance) {
+    if (!mapInstance || typeof mapInstance.getDiv !== "function") {
+      return false;
+    }
+    try {
+      const div = mapInstance.getDiv();
+      return Boolean(div && div.isConnected);
+    } catch {
+      return false;
+    }
+  };
 
   W.DEFAULT_SETTINGS = {
     enabled: true,
