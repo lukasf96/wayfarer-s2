@@ -59,6 +59,47 @@
     return /mapview/i.test(path);
   }
 
+  let lastRouteKey = null;
+
+  function getRouteKey() {
+    return location.pathname + location.search + location.hash;
+  }
+
+  function checkRouteChange() {
+    const key = getRouteKey();
+    if (key === lastRouteKey) {
+      return;
+    }
+    lastRouteKey = key;
+    onNavigation();
+  }
+
+  function installRouteWatch() {
+    if (window.__wfs2RouteWatch) {
+      return;
+    }
+    window.__wfs2RouteWatch = true;
+    lastRouteKey = getRouteKey();
+
+    const originalPushState = history.pushState;
+    const originalReplaceState = history.replaceState;
+
+    history.pushState = function (...args) {
+      const result = originalPushState.apply(this, args);
+      checkRouteChange();
+      return result;
+    };
+
+    history.replaceState = function (...args) {
+      const result = originalReplaceState.apply(this, args);
+      checkRouteChange();
+      return result;
+    };
+
+    window.addEventListener("popstate", checkRouteChange);
+    window.addEventListener("hashchange", checkRouteChange);
+  }
+
   function isMapLike(obj) {
     return (
       obj &&
@@ -602,7 +643,11 @@
 
     mapListeners.push(google.maps.event.addListener(map, "idle", () => {
       scheduleRedraw();
-      positionPanel();
+      if (isMapViewPage()) {
+        positionPanel();
+      } else {
+        hidePanel();
+      }
     }));
     mapListeners.push(
       google.maps.event.addListener(map, "zoom_changed", scheduleRedraw)
@@ -733,8 +778,16 @@
     );
   }
 
+  function hidePanel() {
+    if (!panelEl) {
+      return;
+    }
+    panelEl.remove();
+    panelEl = null;
+  }
+
   function positionPanel() {
-    if (!panelEl || panelEl.style.display === "none") {
+    if (!isMapViewPage() || !panelEl) {
       return;
     }
 
@@ -862,9 +915,7 @@
 
   function updatePanel() {
     if (!isMapViewPage()) {
-      if (panelEl) {
-        panelEl.style.display = "none";
-      }
+      hidePanel();
       return;
     }
 
@@ -983,7 +1034,7 @@
     window.__wfs2LegendWatch = true;
 
     const observer = new MutationObserver(() => {
-      if (getMapLegend()) {
+      if (isMapViewPage() && getMapLegend()) {
         positionPanel();
       }
     });
@@ -1008,9 +1059,8 @@
       waitForGoogleMapsApi();
       startMapDiscovery();
       watchMapLegend();
+      installRouteWatch();
 
-      window.addEventListener("popstate", onNavigation);
-      window.addEventListener("hashchange", onNavigation);
       window.addEventListener("resize", positionPanel);
       window.addEventListener("scroll", positionPanel, true);
     });
