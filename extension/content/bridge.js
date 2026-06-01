@@ -4,40 +4,15 @@
 (function () {
   "use strict";
 
-  const MESSAGE_TYPE = "WAYFARER_S2_SETTINGS";
-  const DEFAULT_SETTINGS = {
-    enabled: true,
-    highlightOccupiedL17: true,
-    grids: [
-      { level: 14, enabled: true, color: "#2196F3", opacity: 0.85, weight: 2 },
-      { level: 17, enabled: true, color: "#FF9800", opacity: 0.95, weight: 2 },
-    ],
-  };
-
-  function normalizeSettings(settings) {
-    if (!settings || typeof settings !== "object") {
-      return JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
-    }
-
-    const normalized = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
-    if (typeof settings.enabled === "boolean") {
-      normalized.enabled = settings.enabled;
-    }
-    if (typeof settings.highlightOccupiedL17 === "boolean") {
-      normalized.highlightOccupiedL17 = settings.highlightOccupiedL17;
-    }
-    if (Array.isArray(settings.grids)) {
-      normalized.grids = normalized.grids.map((defaultGrid) => {
-        const override = settings.grids.find((g) => g && g.level === defaultGrid.level);
-        return override ? { ...defaultGrid, ...override } : defaultGrid;
-      });
-    }
-    return normalized;
+  const W = window.WayfarerS2;
+  if (!W?.normalizeSettings) {
+    console.error("[Wayfarer S2] core library failed to load");
+    return;
   }
 
   function broadcast(settings) {
     window.postMessage(
-      { type: MESSAGE_TYPE, settings: normalizeSettings(settings) },
+      { type: W.MESSAGE_SETTINGS, settings: W.normalizeSettings(settings) },
       "*"
     );
   }
@@ -54,13 +29,13 @@
   }
 
   function loadAndBroadcast() {
-    chrome.storage.sync.get({ settings: DEFAULT_SETTINGS }, (result) => {
+    chrome.storage.sync.get({ settings: W.DEFAULT_SETTINGS }, (result) => {
       broadcast(result.settings);
     });
   }
 
   window.addEventListener("message", (event) => {
-    if (event.source !== window || event.data?.type !== MESSAGE_TYPE) {
+    if (event.source !== window || event.data?.type !== W.MESSAGE_SETTINGS) {
       return;
     }
 
@@ -76,7 +51,7 @@
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "sync" && changes.settings) {
-      broadcast(changes.settings.newValue ?? DEFAULT_SETTINGS);
+      broadcast(changes.settings.newValue ?? W.DEFAULT_SETTINGS);
     }
   });
 

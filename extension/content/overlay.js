@@ -5,35 +5,24 @@
 (function () {
   "use strict";
 
-  const MESSAGE_TYPE = "WAYFARER_S2_SETTINGS";
-  const POI_MESSAGE_TYPE = "WAYFARER_S2_POIS";
+  const W = window.WayfarerS2;
   const POI_CELL_LEVEL = 17;
   const POGO_ENTITIES = new Set(["POKESTOP", "GYM"]);
 
-  const DEFAULT_SETTINGS = {
-    enabled: true,
-    highlightOccupiedL17: true,
-    grids: [
-      { level: 14, enabled: true, color: "#2196F3", opacity: 0.85, weight: 2 },
-      { level: 17, enabled: true, color: "#FF9800", opacity: 0.95, weight: 2 },
-    ],
-  };
-
-  if (!window.WayfarerS2?.S2Cell) {
-    console.error("[Wayfarer S2] S2 geometry library failed to load");
+  if (!W?.S2Cell || !W.normalizeSettings) {
+    console.error("[Wayfarer S2] extension libraries failed to load");
     return;
   }
 
-  const { S2Cell } = window.WayfarerS2;
+  const { S2Cell } = W;
 
-  let settings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+  let settings = W.cloneSettings(W.DEFAULT_SETTINGS);
   let map = null;
   let mapListeners = [];
   let polygons = [];
   let panelEl = null;
   let redrawTimer = null;
   let findMapTimer = null;
-  let passiveHookInstalled = false;
   let occupiedL17Cells = new Set();
   let poiCache = new Map();
 
@@ -52,11 +41,6 @@
     } else {
       run();
     }
-  }
-
-  function isMapViewPage() {
-    const path = location.pathname + location.hash;
-    return /mapview/i.test(path);
   }
 
   let lastRouteKey = null;
@@ -100,35 +84,6 @@
     window.addEventListener("hashchange", checkRouteChange);
   }
 
-  function isMapLike(obj) {
-    return (
-      obj &&
-      typeof obj.getCenter === "function" &&
-      typeof obj.getBounds === "function" &&
-      typeof obj.getZoom === "function" &&
-      typeof obj.addListener === "function"
-    );
-  }
-
-  function unwrapMap(candidate) {
-    if (!candidate) {
-      return null;
-    }
-    if (isMapLike(candidate)) {
-      return candidate;
-    }
-    if (candidate.cO && isMapLike(candidate.cO)) {
-      return candidate.cO;
-    }
-    if (candidate.map && isMapLike(candidate.map)) {
-      return candidate.map;
-    }
-    if (candidate.innerMap && isMapLike(candidate.innerMap)) {
-      return candidate.innerMap;
-    }
-    return null;
-  }
-
   function readMapFromHost(host) {
     if (!host) {
       return null;
@@ -145,7 +100,7 @@
     ];
     for (const key of directKeys) {
       try {
-        const found = unwrapMap(host[key]);
+        const found = W.unwrapMap(host[key]);
         if (found) {
           return found;
         }
@@ -159,7 +114,7 @@
         continue;
       }
       try {
-        const found = unwrapMap(host[key]);
+        const found = W.unwrapMap(host[key]);
         if (found) {
           return found;
         }
@@ -169,62 +124,6 @@
     }
 
     return null;
-  }
-
-  function installPassiveMapCapture() {
-    if (passiveHookInstalled || !window.google?.maps) {
-      return passiveHookInstalled;
-    }
-
-    function capture(mapArg) {
-      if (!mapArg || !isMapViewPage()) {
-        return;
-      }
-      attachMap(mapArg);
-    }
-
-    function wrapSetMap(proto) {
-      if (!proto?.setMap || proto.__wfs2SetMapHooked) {
-        return;
-      }
-      const original = proto.setMap;
-      proto.setMap = function (mapArg) {
-        capture(mapArg);
-        return original.apply(this, arguments);
-      };
-      proto.__wfs2SetMapHooked = true;
-    }
-
-    const typeNames = [
-      "Marker",
-      "Polygon",
-      "Polyline",
-      "Circle",
-      "Rectangle",
-      "OverlayView",
-      "GroundOverlay",
-      "InfoWindow",
-    ];
-    for (const typeName of typeNames) {
-      wrapSetMap(google.maps[typeName]?.prototype);
-    }
-    wrapSetMap(google.maps.marker?.AdvancedMarkerElement?.prototype);
-
-    if (!google.maps.event.__wfs2AddListenerHooked) {
-      const originalAddListener = google.maps.event.addListener;
-      google.maps.event.addListener = function (instance, eventName, handler) {
-        const found =
-          unwrapMap(instance) || (isMapLike(instance) ? instance : null);
-        if (found) {
-          attachMap(found);
-        }
-        return originalAddListener.apply(this, arguments);
-      };
-      google.maps.event.__wfs2AddListenerHooked = true;
-    }
-
-    passiveHookInstalled = true;
-    return true;
   }
 
   function walkParentChainForMap(startEl) {
@@ -240,19 +139,15 @@
   }
 
   function tryAngularMap() {
-    const candidates = document.querySelectorAll(
-      "app-wf-base-map, nia-map, app-mapview, app-mapview-map, .map-container, .mapview-container"
-    );
-
-    for (const el of candidates) {
+    for (const el of document.querySelectorAll(W.MAP_HOST_SELECTORS)) {
       try {
-        const cmp = getAngularComponent(el);
+        const cmp = W.getAngularComponent(el);
         if (!cmp || typeof cmp !== "object") {
           continue;
         }
 
         for (const key of Object.keys(cmp)) {
-          const found = unwrapMap(cmp[key]);
+          const found = W.unwrapMap(cmp[key]);
           if (found) {
             return found;
           }
@@ -327,28 +222,6 @@
     });
   }
 
-  function normalizeHarvestedMarker(marker) {
-    if (!marker) {
-      return null;
-    }
-    let lat = marker.lat;
-    let lng = marker.lng;
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-      if (typeof marker.latE6 === "number" && typeof marker.lngE6 === "number") {
-        lat = marker.latE6 / 1e6;
-        lng = marker.lngE6 / 1e6;
-      }
-    }
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-      return null;
-    }
-    return {
-      lat,
-      lng,
-      gmo: marker.gmo ?? marker.properties?.gmo,
-    };
-  }
-
   function cachePoi(poi) {
     const key = `${poi.lat.toFixed(6)},${poi.lng.toFixed(6)}`;
     poiCache.set(key, poi);
@@ -362,103 +235,12 @@
     }
   }
 
-  function looksLikeMapComponent(obj) {
-    return (
-      obj &&
-      typeof obj === "object" &&
-      (Array.isArray(obj.markers) || obj._mapService)
-    );
-  }
-
-  function getAngularComponent(el) {
-    if (!el) {
-      return null;
-    }
-
-    if (window.ng?.getComponent) {
-      try {
-        const cmp = window.ng.getComponent(el);
-        if (cmp) {
-          return cmp;
-        }
-      } catch {
-        // fall through
-      }
-    }
-
-    const ctx = el.__ngContext__;
-    if (!ctx) {
-      return null;
-    }
-
-    const queue = [ctx];
-    const seen = new WeakSet();
-
-    while (queue.length) {
-      const value = queue.shift();
-      if (!value || typeof value !== "object" || seen.has(value)) {
-        continue;
-      }
-      seen.add(value);
-
-      if (looksLikeMapComponent(value)) {
-        return value;
-      }
-
-      if (Array.isArray(value)) {
-        for (const item of value) {
-          queue.push(item);
-        }
-      } else {
-        for (const key of Object.keys(value)) {
-          try {
-            queue.push(value[key]);
-          } catch {
-            // ignore
-          }
-        }
-      }
-    }
-
-    return null;
-  }
-
-  function findRawMarkersArray(root) {
-    const queue = [root];
-    const seen = new WeakSet();
-
-    while (queue.length) {
-      const obj = queue.shift();
-      if (!obj || typeof obj !== "object" || seen.has(obj)) {
-        continue;
-      }
-      seen.add(obj);
-
-      if (Array.isArray(obj._rawMarkers)) {
-        return obj._rawMarkers;
-      }
-
-      for (const key of Object.keys(obj)) {
-        try {
-          const value = obj[key];
-          if (value && typeof value === "object") {
-            queue.push(value);
-          }
-        } catch {
-          // ignore
-        }
-      }
-    }
-
-    return null;
-  }
-
   function pushMarkersFromList(markers, list) {
     if (!Array.isArray(list)) {
       return;
     }
     for (const marker of list) {
-      const normalized = normalizeHarvestedMarker(marker);
+      const normalized = W.normalizePoiMarker(marker);
       if (normalized) {
         markers.push(normalized);
       }
@@ -467,13 +249,10 @@
 
   function harvestRawMarkers() {
     const markers = [];
-    const hosts = document.querySelectorAll(
-      "app-wf-base-map, app-mapview, app-mapview-map, .mapview-container, nia-map"
-    );
 
-    for (const el of hosts) {
+    for (const el of document.querySelectorAll(W.MAP_HOST_SELECTORS)) {
       try {
-        const cmp = getAngularComponent(el);
+        const cmp = W.getAngularComponent(el);
         if (!cmp) {
           continue;
         }
@@ -484,7 +263,7 @@
           pushMarkersFromList(markers, cmp._mapService._rawMarkers);
         }
 
-        const raw = findRawMarkersArray(cmp);
+        const raw = W.findRawMarkersArray(cmp);
         pushMarkersFromList(markers, raw);
       } catch {
         // ignore
@@ -583,7 +362,7 @@
   }
 
   function redrawGrid() {
-    if (!map || !settings.enabled || !isMapViewPage()) {
+    if (!map || !settings.enabled || !W.isMapViewPage()) {
       clearOverlays();
       return;
     }
@@ -626,14 +405,14 @@
   }
 
   function consumePendingMap() {
-    const pending = window.__wayfarerS2PendingMap;
+    const pending = window[W.PENDING_MAP_KEY];
     if (pending) {
       attachMap(pending);
     }
   }
 
   function attachMap(instance) {
-    const resolved = unwrapMap(instance);
+    const resolved = W.unwrapMap(instance);
     if (!resolved || map === resolved) {
       return Boolean(resolved);
     }
@@ -643,7 +422,7 @@
 
     mapListeners.push(google.maps.event.addListener(map, "idle", () => {
       scheduleRedraw();
-      if (isMapViewPage()) {
+      if (W.isMapViewPage()) {
         positionPanel();
       } else {
         hidePanel();
@@ -667,8 +446,6 @@
     if (map) {
       return true;
     }
-
-    installPassiveMapCapture();
 
     const fromAngular = tryAngularMap();
     if (fromAngular && attachMap(fromAngular)) {
@@ -707,7 +484,6 @@
 
   function waitForGoogleMapsApi() {
     if (window.google?.maps) {
-      installPassiveMapCapture();
       consumePendingMap();
       tryFindExistingMap();
       return;
@@ -718,7 +494,6 @@
         return;
       }
       clearInterval(timer);
-      installPassiveMapCapture();
       consumePendingMap();
       tryFindExistingMap();
     }, 200);
@@ -735,7 +510,7 @@
     findMapTimer = setInterval(() => {
       attempts += 1;
 
-      if (!isMapViewPage()) {
+      if (!W.isMapViewPage()) {
         if (map) {
           detachMap();
         }
@@ -752,7 +527,6 @@
         return;
       }
 
-      installPassiveMapCapture();
       consumePendingMap();
       tryFindExistingMap();
 
@@ -787,7 +561,7 @@
   }
 
   function positionPanel() {
-    if (!isMapViewPage() || !panelEl) {
+    if (!W.isMapViewPage() || !panelEl) {
       return;
     }
 
@@ -889,7 +663,7 @@
   }
 
   function syncSettingsToExtension() {
-    window.postMessage({ type: MESSAGE_TYPE, settings, fromPage: true }, "*");
+    window.postMessage({ type: W.MESSAGE_SETTINGS, settings, fromPage: true }, "*");
   }
 
   function renderLevelToggles() {
@@ -914,7 +688,7 @@
   }
 
   function updatePanel() {
-    if (!isMapViewPage()) {
+    if (!W.isMapViewPage()) {
       hidePanel();
       return;
     }
@@ -936,38 +710,14 @@
     renderLevelToggles();
   }
 
-  function normalizeSettings(next) {
-    const normalized = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
-
-    if (!next || typeof next !== "object") {
-      return normalized;
-    }
-
-    if (typeof next.enabled === "boolean") {
-      normalized.enabled = next.enabled;
-    }
-    if (typeof next.highlightOccupiedL17 === "boolean") {
-      normalized.highlightOccupiedL17 = next.highlightOccupiedL17;
-    }
-
-    if (Array.isArray(next.grids)) {
-      normalized.grids = normalized.grids.map((defaultGrid) => {
-        const override = next.grids.find((g) => g && g.level === defaultGrid.level);
-        return override ? { ...defaultGrid, ...override } : defaultGrid;
-      });
-    }
-
-    return normalized;
-  }
-
   function applySettings(next) {
-    settings = normalizeSettings(next);
+    settings = W.normalizeSettings(next);
     updatePanel();
     scheduleRedraw();
   }
 
   function onSettingsMessage(event) {
-    if (event.source !== window || event.data?.type !== MESSAGE_TYPE) {
+    if (event.source !== window || event.data?.type !== W.MESSAGE_SETTINGS) {
       return;
     }
     if (event.data.fromPage || event.data.request) {
@@ -977,7 +727,7 @@
   }
 
   function onPoisMessage(event) {
-    if (event.source !== window || event.data?.type !== POI_MESSAGE_TYPE) {
+    if (event.source !== window || event.data?.type !== W.MESSAGE_POIS) {
       return;
     }
     if (!Array.isArray(event.data.pois)) {
@@ -1007,7 +757,7 @@
   }
 
   function onNavigation() {
-    if (!isMapViewPage()) {
+    if (!W.isMapViewPage()) {
       detachMap();
       poiCache = new Map();
       occupiedL17Cells = new Set();
@@ -1034,7 +784,7 @@
     window.__wfs2LegendWatch = true;
 
     const observer = new MutationObserver(() => {
-      if (isMapViewPage() && getMapLegend()) {
+      if (W.isMapViewPage() && getMapLegend()) {
         positionPanel();
       }
     });
@@ -1049,8 +799,8 @@
   function init() {
     window.addEventListener("message", onSettingsMessage);
     window.addEventListener("message", onPoisMessage);
-    window.addEventListener("wayfarer-s2-map-found", consumePendingMap);
-    window.postMessage({ type: MESSAGE_TYPE, request: true }, "*");
+    window.addEventListener(W.MAP_FOUND_EVENT, consumePendingMap);
+    window.postMessage({ type: W.MESSAGE_SETTINGS, request: true }, "*");
     consumePendingMap();
 
     whenDomReady(() => {

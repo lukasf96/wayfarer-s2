@@ -4,34 +4,15 @@
 (function () {
   "use strict";
 
-  const POI_MESSAGE_TYPE = "WAYFARER_S2_POIS";
-
-  function isMapViewPage() {
-    return /mapview/i.test(location.pathname + location.hash);
+  const W = window.WayfarerS2;
+  if (!W?.normalizePoiMarker) {
+    console.error("[Wayfarer S2] core library failed to load");
+    return;
   }
 
   function shouldCaptureMapUrl(url) {
     const value = String(url);
     return value.includes("cellLevel") || /GCS/i.test(value) || /mapview/i.test(value);
-  }
-
-  function normalizeMarker(marker) {
-    if (!marker) {
-      return null;
-    }
-    let lat = marker.lat;
-    let lng = marker.lng;
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-      if (typeof marker.latE6 === "number" && typeof marker.lngE6 === "number") {
-        lat = marker.latE6 / 1e6;
-        lng = marker.lngE6 / 1e6;
-      }
-    }
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-      return null;
-    }
-    const gmo = marker.gmo ?? marker.properties?.gmo;
-    return { lat, lng, gmo };
   }
 
   function extractPoisFromPayload(data) {
@@ -45,7 +26,7 @@
         return;
       }
       for (const poi of list) {
-        const normalized = normalizeMarker(poi);
+        const normalized = W.normalizePoiMarker(poi);
         if (normalized) {
           pois.push(normalized);
         }
@@ -74,10 +55,10 @@
   }
 
   function broadcastPois(pois, replace) {
-    if (!pois.length || !isMapViewPage()) {
+    if (!pois.length || !W.isMapViewPage()) {
       return;
     }
-    window.postMessage({ type: POI_MESSAGE_TYPE, pois, replace: Boolean(replace) }, "*");
+    window.postMessage({ type: W.MESSAGE_POIS, pois, replace: Boolean(replace) }, "*");
   }
 
   function broadcastMarkers(markers, replace) {
@@ -86,7 +67,7 @@
     }
     const pois = [];
     for (const marker of markers) {
-      const normalized = normalizeMarker(marker);
+      const normalized = W.normalizePoiMarker(marker);
       if (normalized) {
         pois.push(normalized);
       }
@@ -165,122 +146,28 @@
     }
   }
 
-  function looksLikeMapComponent(obj) {
-    return (
-      obj &&
-      typeof obj === "object" &&
-      (Array.isArray(obj.markers) || obj._mapService)
-    );
-  }
-
-  function getAngularComponent(el) {
-    if (!el) {
-      return null;
-    }
-
-    if (window.ng?.getComponent) {
+  function harvestFromAngular() {
+    for (const el of document.querySelectorAll(W.MAP_HOST_SELECTORS)) {
       try {
-        const cmp = window.ng.getComponent(el);
-        if (cmp) {
-          return cmp;
+        const cmp = W.getAngularComponent(el);
+        if (!cmp) {
+          continue;
+        }
+
+        if (Array.isArray(cmp.markers) && cmp.markers.length) {
+          broadcastMarkers(cmp.markers, false);
+        }
+
+        if (cmp._mapService) {
+          hookMapService(cmp._mapService);
+        }
+
+        const service = W.findMapService(cmp);
+        if (service) {
+          hookMapService(service);
         }
       } catch {
-        // fall through
-      }
-    }
-
-    const ctx = el.__ngContext__;
-    if (!ctx) {
-      return null;
-    }
-
-    const queue = [ctx];
-    const seen = new WeakSet();
-
-    while (queue.length) {
-      const value = queue.shift();
-      if (!value || typeof value !== "object" || seen.has(value)) {
-        continue;
-      }
-      seen.add(value);
-
-      if (looksLikeMapComponent(value)) {
-        return value;
-      }
-
-      if (Array.isArray(value)) {
-        for (const item of value) {
-          queue.push(item);
-        }
-      } else {
-        for (const key of Object.keys(value)) {
-          try {
-            queue.push(value[key]);
-          } catch {
-            // ignore
-          }
-        }
-      }
-    }
-
-    return null;
-  }
-
-  function findMapService(root) {
-    const queue = [root];
-    const seen = new WeakSet();
-
-    while (queue.length) {
-      const obj = queue.shift();
-      if (!obj || typeof obj !== "object" || seen.has(obj)) {
-        continue;
-      }
-      seen.add(obj);
-
-      if (typeof obj.updateMarkers === "function" && Array.isArray(obj._rawMarkers)) {
-        return obj;
-      }
-
-      for (const key of Object.keys(obj)) {
-        try {
-          const value = obj[key];
-          if (value && typeof value === "object") {
-            queue.push(value);
-          }
-        } catch {
-          // ignore
-        }
-      }
-    }
-
-    return null;
-  }
-
-  function harvestFromAngular() {
-    const selectors = ["app-wf-base-map", "app-mapview", "app-mapview-map", "nia-map"];
-    for (const selector of selectors) {
-      for (const el of document.querySelectorAll(selector)) {
-        try {
-          const cmp = getAngularComponent(el);
-          if (!cmp) {
-            continue;
-          }
-
-          if (Array.isArray(cmp.markers) && cmp.markers.length) {
-            broadcastMarkers(cmp.markers, false);
-          }
-
-          if (cmp._mapService) {
-            hookMapService(cmp._mapService);
-          }
-
-          const service = findMapService(cmp);
-          if (service) {
-            hookMapService(service);
-          }
-        } catch {
-          // ignore
-        }
+        // ignore
       }
     }
   }
@@ -289,7 +176,7 @@
     let ticks = 0;
     const timer = setInterval(() => {
       ticks += 1;
-      if (!isMapViewPage()) {
+      if (!W.isMapViewPage()) {
         if (ticks > 5) {
           clearInterval(timer);
         }

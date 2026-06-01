@@ -31,18 +31,18 @@
   "content_scripts": [
     {
       "matches": ["https://wayfarer.nianticlabs.com/*"],
-      "js": ["content/bridge.js"],
+      "js": ["lib/core.js", "content/bridge.js"],
       "run_at": "document_idle"
     },
     {
       "matches": ["https://wayfarer.nianticlabs.com/*"],
-      "js": ["lib/s2-geometry.js", "content/map-capture.js", "content/poi-capture.js"],
+      "js": ["lib/core.js", "content/map-capture.js", "content/poi-capture.js"],
       "run_at": "document_start",
       "world": "MAIN"
     },
     {
       "matches": ["https://wayfarer.nianticlabs.com/*"],
-      "js": ["content/overlay.js"],
+      "js": ["lib/s2-geometry.js", "lib/core.js", "content/overlay.js"],
       "run_at": "document_idle",
       "world": "MAIN"
     }

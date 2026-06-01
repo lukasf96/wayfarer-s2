@@ -217,5 +217,6 @@
     );
   };
 
-  global.WayfarerS2 = { S2Cell };
+  const W = (global.WayfarerS2 = global.WayfarerS2 || {});
+  W.S2Cell = S2Cell;
 })(typeof window !== "undefined" ? window : globalThis);
