@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Wayfarer S2 Grid</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Wayfarer S2 Grid</h1>
+      <p class="subtitle">S2 overlays for the Wayfarer map</p>
+    </header>
+
+    <label class="row">
+      <input type="checkbox" id="enabled" />
+      <span>Enable grid overlay</span>
+    </label>
+
+    <label class="row">
+      <input type="checkbox" id="highlightOccupiedL17" />
+      <span>Shade blocked L17 cells</span>
+    </label>
+
+    <fieldset>
+      <legend>Cell levels</legend>
+      <label class="row">
+        <input type="checkbox" id="level14" />
+        <span>Level 14</span>
+        <span class="tag">~450 m — gym density</span>
+      </label>
+      <label class="row">
+        <input type="checkbox" id="level17" />
+        <span>Level 17</span>
+        <span class="tag tag-important">~70 m — 1 stop per cell</span>
+      </label>
+    </fieldset>
+
+    <p class="note">
+      Open
+      <a href="https://wayfarer.nianticlabs.com/new/mapview" target="_blank"
+        >Wayfarer Map</a
+      >
+      and pan/zoom to see the grid. Use the on-map panel for quick toggles.
+    </p>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

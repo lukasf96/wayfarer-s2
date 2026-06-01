@@ -1,0 +1,50 @@
+{
+  "manifest_version": 3,
+  "name": "Wayfarer S2 Grid",
+  "version": "1.1.4",
+  "description": "Overlay S2 cell grids on the Niantic Wayfarer map for efficient waypoint submissions.",
+  "permissions": ["storage"],
+  "host_permissions": ["https://wayfarer.nianticlabs.com/*"],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Wayfarer S2 Grid",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["content/overlay.css"],
+      "matches": ["https://wayfarer.nianticlabs.com/*"]
+    }
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://wayfarer.nianticlabs.com/*"],
+      "js": ["content/bridge.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://wayfarer.nianticlabs.com/*"],
+      "js": ["lib/s2-geometry.js", "content/map-capture.js", "content/poi-capture.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://wayfarer.nianticlabs.com/*"],
+      "js": ["content/overlay.js"],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    }
+  ]
+}
